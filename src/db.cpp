@@ -16,7 +16,7 @@ struct LaterKey { bool operator()(const Cursor& a,const Cursor& b) const {
 }
 DB::DB(std::string directory,Options options):directory_(std::move(directory)),options_(options),mem_(std::make_unique<SkipList>()) {
   if(options_.memtable_bytes==0 || options_.compact_after<2 || options_.bloom_bits_per_key>100) throw std::invalid_argument("invalid DB options");
-  std::filesystem::create_directories(directory_);
+  if(std::filesystem::create_directories(directory_)) SyncDir(directory_);
   std::string manifest=directory_+"/MANIFEST";
   if(std::filesystem::exists(manifest)) {
     Bytes b=ReadFile(manifest); if(b.size()<24) throw std::runtime_error("manifest truncated");
@@ -73,7 +73,7 @@ void DB::Flush() {
     std::vector<uint64_t> ids; for(const auto& x:tables_) ids.push_back(x.id); ids.push_back(id);
     WriteManifest(ids,id+1);
     tables_.push_back({id,std::move(table)}); next_id_=id+1;
-    wal_->Reset(); immutable_.reset();
+    wal_->Rotate(); immutable_.reset();
   } catch (...) {
     if(!mem_->Empty()) throw std::logic_error("unexpected concurrent write during flush");
     mem_=std::move(immutable_); throw;

@@ -15,13 +15,17 @@ Wal::Wal(std::string path,SyncPolicy policy):path_(std::move(path)),policy_(poli
 }
 Wal::~Wal(){ if(fd_>=0) ::close(fd_); }
 void Wal::Append(const Entry& e) {
+  if(poisoned_) throw std::runtime_error("WAL unusable after I/O failure");
   if(e.first.size()>kMaxRecord-9 || (e.second && e.second->size()>kMaxRecord-9-e.first.size())) throw std::invalid_argument("WAL record too large");
   Bytes payload; payload.push_back(e.second ? 1:0); U32(payload,static_cast<uint32_t>(e.first.size()));
   U32(payload,static_cast<uint32_t>(e.second ? e.second->size():0)); String(payload,e.first);
   if(e.second) String(payload,*e.second);
   Bytes record; U32(record,static_cast<uint32_t>(payload.size())); U32(record,Crc32(payload));
-  record.insert(record.end(),payload.begin(),payload.end()); WriteAll(fd_,record.data(),record.size());
-  if(policy_==SyncPolicy::PerWrite) Sync();
+  record.insert(record.end(),payload.begin(),payload.end());
+  try {
+    WriteAll(fd_,record.data(),record.size());
+    if(policy_==SyncPolicy::PerWrite) Sync();
+  } catch (...) { poisoned_=true; throw; }
 }
 std::vector<Entry> Wal::Replay() {
   Bytes data=ReadFile(path_); std::vector<Entry> out; size_t p=0,good=0;
@@ -43,6 +47,20 @@ std::vector<Entry> Wal::Replay() {
   if(good<data.size()) { if(::ftruncate(fd_,static_cast<off_t>(good))<0) throw std::system_error(errno,std::generic_category(),"truncate WAL tail"); Sync(); }
   return out;
 }
-void Wal::Sync() { if(::fsync(fd_)<0) throw std::system_error(errno,std::generic_category(),"fsync WAL"); }
-void Wal::Reset() { if(::ftruncate(fd_,0)<0) throw std::system_error(errno,std::generic_category(),"reset WAL"); Sync(); }
+void Wal::Sync() {
+  if(poisoned_) throw std::runtime_error("WAL unusable after I/O failure");
+  if(::fsync(fd_)<0) { poisoned_=true; throw std::system_error(errno,std::generic_category(),"fsync WAL"); }
+}
+void Wal::Rotate() {
+  if(poisoned_) throw std::runtime_error("WAL unusable after I/O failure");
+  std::string next=path_+".next";
+  int fresh=::open(next.c_str(),O_CREAT|O_TRUNC|O_RDWR|O_APPEND,0644);
+  if(fresh<0) { poisoned_=true; throw std::system_error(errno,std::generic_category(),"open next WAL"); }
+  try {
+    if(::fsync(fresh)<0) throw std::system_error(errno,std::generic_category(),"fsync next WAL");
+    if(::rename(next.c_str(),path_.c_str())<0) throw std::system_error(errno,std::generic_category(),"rename WAL");
+    SyncDir(path_);
+  } catch (...) { ::close(fresh); poisoned_=true; throw; }
+  ::close(fd_); fd_=fresh;
+}
 }

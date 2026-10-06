@@ -13,8 +13,9 @@ class Wal {
   void Append(const Entry& entry);
   std::vector<Entry> Replay();
   void Sync();
-  void Reset();
+  void Rotate();
  private:
   std::string path_; SyncPolicy policy_; int fd_=-1;
+  bool poisoned_=false;
 };
 }

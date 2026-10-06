@@ -13,6 +13,7 @@
 #include <map>
 #include <random>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
 using namespace lsm;
@@ -78,6 +79,17 @@ TEST(DB, EmptyOverwriteDeleteReputScanRecovery) {
     EXPECT_EQ(db.Scan("a","c"),(std::vector<std::pair<std::string,std::string>>{{"a","4"},{"b","3"}})); db.Flush(); }
   { DB db(t.path,o); EXPECT_EQ(db.Get("a"),"4"); EXPECT_EQ(db.Get("b"),"3"); EXPECT_FALSE(db.Get("x")); }
 }
+TEST(DB, FlushRotatesWal) {
+  Temp t; Options o; o.memtable_bytes=1u<<20;
+  DB db(t.path,o); db.Put("a","1");
+  struct stat before{},after{};
+  ASSERT_EQ(::stat((t.path+"/WAL").c_str(),&before),0);
+  db.Flush();
+  ASSERT_EQ(::stat((t.path+"/WAL").c_str(),&after),0);
+  EXPECT_NE(before.st_ino,after.st_ino);
+  EXPECT_EQ(after.st_size,0);
+  EXPECT_EQ(db.Get("a"),"1");
+}
 TEST(DB, TombstoneSurvivesWhenOlderTableExists) {
   Temp t; Options o=Small(); o.compact_after=100;
   { DB db(t.path,o); db.Put("a","old"); db.Flush(); db.Delete("a"); db.Flush(); db.Put("z","other"); db.Flush();
@@ -121,7 +133,7 @@ TEST(DB, CrashAckedWrites200Iterations) {
       try { Options o; o.memtable_bytes=160; o.compact_after=4; o.sync_policy=SyncPolicy::PerWrite;
         DB db(t.path,o);
         for(int i=0;i<100;++i) {
-          std::string key=Key(i%20),value=std::to_string(i),ack=std::to_string(i)+"\n";
+          std::string key=Key(i%5),value=std::to_string(i),ack=std::to_string(i)+"\n";
           db.Put(key,value);
           WriteAll(pipefd[1],reinterpret_cast<const uint8_t*>(ack.data()),ack.size());
           ::usleep(1000);
@@ -132,10 +144,21 @@ TEST(DB, CrashAckedWrites200Iterations) {
     ::close(pipefd[1]); ::usleep(1000+(rng()%20000)); ::kill(child,SIGKILL);
     int status=0; ASSERT_EQ(::waitpid(child,&status,0),child);
     std::string acks; char buf[1024]; for(;;) { ssize_t n=::read(pipefd[0],buf,sizeof buf); if(n<=0) break; acks.append(buf,n); } ::close(pipefd[0]);
-    std::map<std::string,std::string> expected; size_t p=0;
-    while((p=acks.find('\n'))!=std::string::npos) { int i=std::stoi(acks.substr(0,p)); expected[Key(i%20)]=std::to_string(i); acks.erase(0,p+1); }
+    std::map<std::string,std::string> expected; size_t p=0; int last_ack=-1;
+    while((p=acks.find('\n'))!=std::string::npos) {
+      int i=std::stoi(acks.substr(0,p));
+      ASSERT_EQ(i,last_ack+1);
+      expected[Key(i%5)]=std::to_string(i); last_ack=i; acks.erase(0,p+1);
+    }
     ASSERT_TRUE(acks.empty());
-    try { DB recovered(t.path,Small()); for(const auto& e:expected) ASSERT_EQ(recovered.Get(e.first),e.second) << "iteration="<<iteration; }
+    auto one_in_flight=expected;
+    if(last_ack+1<100) one_in_flight[Key((last_ack+1)%5)]=std::to_string(last_ack+1);
+    try {
+      DB recovered(t.path,Small());
+      auto actual=recovered.Scan("","~");
+      std::map<std::string,std::string> got(actual.begin(),actual.end());
+      ASSERT_TRUE(got==expected || got==one_in_flight) << "iteration="<<iteration<<" last_ack="<<last_ack;
+    }
     catch(const std::exception& e) { FAIL()<<"iteration="<<iteration<<" exception="<<e.what(); }
   }
 }

@@ -54,7 +54,7 @@ Bloom filter uses double hashing (FNV-1a plus mixed odd step); bits per key is c
 
 ## Verified tests
 
-`ctest` passed **12/12** in Release and **12/12** under AddressSanitizer plus UBSan. Included: unit tests for codec, skip list, WAL, Bloom, SSTable, DB; corrupt/truncated WAL tail; corrupt/truncated SST footer; manifest corruption; 10,000-operation randomized `std::map` model; and 200 SIGKILL/reopen iterations with repeated-key child acknowledgments sent only after `Put` returns (recovery may also include one later in-flight write). Crash timing seed: **338545** (`0x52a71`). See [BENCHMARKS.md](BENCHMARKS.md) for exact commands and measured performance.
+`ctest` passed **13/13** in Release and **13/13** under AddressSanitizer plus UBSan. Included: unit tests for codec, skip list, WAL, Bloom, SSTable, DB; corrupt/truncated WAL tail; corrupt/truncated SST footer; manifest corruption; 10,000-operation randomized `std::map` model; and 200 SIGKILL/reopen iterations with repeated-key child acknowledgments sent only after `Put` returns (recovery may also include one later in-flight write). Crash timing seed: **338545** (`0x52a71`). See [BENCHMARKS.md](BENCHMARKS.md) for exact commands and measured performance.
 
 ## Known limits
 

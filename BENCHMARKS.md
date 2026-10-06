@@ -48,4 +48,4 @@ random_read_miss_bloom_off,1513.76,648.472,832.289
 
 ## Test output summary
 
-Release: `100% tests passed, 0 tests failed out of 12`; total real time `2.67 sec` on the post-rotation run. ASan+UBSan: `100% tests passed, 0 tests failed out of 12`; total real time `4.83 sec`. Focused Bloom and crash run printed `actual=0.00703 theoretical=0.00819372`, `Crash test seed=338545 iterations=200`, and `2 tests ... [ PASSED ]`.
+Release: `100% tests passed, 0 tests failed out of 13`; total real time `2.64 sec` on the post-rotation run. ASan+UBSan: `100% tests passed, 0 tests failed out of 13`; total real time `4.24 sec`. Focused Bloom and crash run printed `actual=0.00703 theoretical=0.00819372`, `Crash test seed=338545 iterations=200`, and `2 tests ... [ PASSED ]`.

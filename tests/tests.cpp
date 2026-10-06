@@ -90,6 +90,15 @@ TEST(DB, FlushRotatesWal) {
   EXPECT_EQ(after.st_size,0);
   EXPECT_EQ(db.Get("a"),"1");
 }
+TEST(DB, TornWalTailRecovers) {
+  Temp t; Options o; o.memtable_bytes=1u<<20;
+  { DB db(t.path,o); db.Put("a","durable"); db.Put("b","torn"); }
+  auto bytes=ReadFile(t.path+"/WAL");
+  ASSERT_GT(bytes.size(),4u);
+  bytes.resize(bytes.size()-4);
+  AtomicWrite(t.path+"/WAL",bytes);
+  { DB db(t.path,o); EXPECT_EQ(db.Get("a"),"durable"); EXPECT_FALSE(db.Get("b")); }
+}
 TEST(DB, TombstoneSurvivesWhenOlderTableExists) {
   Temp t; Options o=Small(); o.compact_after=100;
   { DB db(t.path,o); db.Put("a","old"); db.Flush(); db.Delete("a"); db.Flush(); db.Put("z","other"); db.Flush();

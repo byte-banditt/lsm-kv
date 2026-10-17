@@ -2,18 +2,10 @@
 #include "lsm/codec.h"
 #include <algorithm>
 #include <filesystem>
-#include <queue>
 #include <stdexcept>
 #include <unistd.h>
 
 namespace lsm {
-namespace {
-struct Cursor { std::string key; size_t file; size_t pos; };
-struct LaterKey { bool operator()(const Cursor& a,const Cursor& b) const {
-  if(a.key!=b.key) return a.key>b.key;
-  return a.file<b.file;
-} };
-}
 DB::DB(std::string directory,Options options):directory_(std::move(directory)),options_(options),mem_(std::make_unique<SkipList>()) {
   if(options_.memtable_bytes==0 || options_.compact_after<2 || options_.bloom_bits_per_key>100) throw std::invalid_argument("invalid DB options");
   if(std::filesystem::create_directories(directory_)) SyncDir(directory_);
@@ -81,34 +73,10 @@ void DB::Flush() {
   if(tables_.size()>=options_.compact_after) Compact();
 }
 void DB::Compact() {
-  if(tables_.size()<2) return;
-  std::vector<std::vector<Entry>> inputs; inputs.reserve(tables_.size());
-  for(const auto& t:tables_) inputs.push_back(t.file->Entries());
-  std::priority_queue<Cursor,std::vector<Cursor>,LaterKey> heap;
-  for(size_t i=0;i<inputs.size();++i) if(!inputs[i].empty()) heap.push({inputs[i][0].first,i,0});
-  std::vector<Entry> merged;
-  while(!heap.empty()) {
-    Cursor c=heap.top(); heap.pop(); std::string key=c.key;
-    std::optional<std::string> newest=inputs[c.file][c.pos].second;
-    auto advance=[&](const Cursor& x) { size_t next=x.pos+1;
-      if(next<inputs[x.file].size()) heap.push({inputs[x.file][next].first,x.file,next}); };
-    advance(c);
-    while(!heap.empty() && heap.top().key==key) { Cursor old=heap.top(); heap.pop(); advance(old); }
-    // Every live table participates, so no older value can reappear.
-    if(newest) merged.emplace_back(std::move(key),std::move(newest));
-  }
-  std::vector<uint64_t> old_ids; for(const auto& t:tables_) old_ids.push_back(t.id);
-  if(merged.empty()) {
-    WriteManifest({},next_id_); tables_.clear();
-  } else {
-    uint64_t id=next_id_; std::string path=Path(id);
-    SSTable::Create(path,merged,options_.bloom_bits_per_key);
-    auto table=std::make_unique<SSTable>(path);
-    WriteManifest({id},id+1);
-    tables_.clear(); tables_.push_back({id,std::move(table)}); next_id_=id+1;
-  }
-  for(uint64_t id:old_ids) std::filesystem::remove(Path(id));
-  SyncDir(directory_+"/MANIFEST");
+  Compactor(directory_,options_.bloom_bits_per_key).Compact(
+      tables_,next_id_,[this](const std::vector<uint64_t>& ids,uint64_t next_id) {
+        WriteManifest(ids,next_id);
+      });
 }
 void DB::Sync() { wal_->Sync(); }
 }

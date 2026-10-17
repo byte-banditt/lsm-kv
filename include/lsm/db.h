@@ -1,6 +1,7 @@
 #pragma once
 #include "lsm/skiplist.h"
 #include "lsm/sstable.h"
+#include "lsm/compactor.h"
 #include "lsm/wal.h"
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +32,7 @@ class DB {
   void Sync();
   size_t TableCount() const { return tables_.size(); }
  private:
-  struct Table { uint64_t id; std::unique_ptr<SSTable> file; };
+  using Table = Compactor::Table;
   void WriteManifest(const std::vector<uint64_t>& ids,uint64_t next_id);
   std::string Path(uint64_t id) const;
   void Apply(const std::string& key,std::optional<std::string> value);

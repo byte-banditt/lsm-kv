@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
+#include <iomanip>
 #include <numeric>
 #include <random>
 #include <stdexcept>
@@ -20,9 +21,6 @@ Result Finish(std::vector<double>& us,Clock::time_point start,size_t ops) {
   double seconds=std::chrono::duration<double>(Clock::now()-start).count();
   std::sort(us.begin(),us.end());
   return {ops/seconds,us[us.size()/2],us[(us.size()*99)/100]};
-}
-void Print(const char* name,const Result& r) {
-  std::cout<<name<<","<<r.ops_s<<","<<r.p50_us<<","<<r.p99_us<<"\n";
 }
 Result Fill(const std::string& dir,bool random) {
   std::filesystem::remove_all(dir); Options o; o.memtable_bytes=64*1024; o.compact_after=1000; o.sync_policy=SyncPolicy::Batched;
@@ -47,10 +45,11 @@ Result Read(const std::string& dir,bool hits,bool bloom) {
 int main(int argc,char** argv) {
   if(argc!=2) { std::cerr<<"usage: lsm_bench WORKDIR\n"; return 2; }
   std::string root=argv[1]; std::filesystem::create_directories(root);
-  std::cout<<"workload,ops_per_s,p50_us,p99_us\n";
-  Print("sequential_fill",Fill(root+"/seq",false));
-  Print("random_fill",Fill(root+"/random",true));
-  Print("random_read_hit",Read(root+"/random",true,true));
-  Print("random_read_miss_bloom_on",Read(root+"/random",false,true));
-  Print("random_read_miss_bloom_off",Read(root+"/random",false,false));
+  Result put=Fill(root+"/seq",false);
+  Result get=Read(root+"/seq",true,true);
+  std::cout<<std::setprecision(10)
+    <<"{\"put_ops_s\":"<<put.ops_s
+    <<",\"get_ops_s\":"<<get.ops_s
+    <<",\"get_p50_us\":"<<get.p50_us
+    <<",\"get_p99_us\":"<<get.p99_us<<"}\n";
 }

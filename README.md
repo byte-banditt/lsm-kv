@@ -1,6 +1,6 @@
 # lsm-kv
 
-[![CI](https://github.com/byte-banditt/lsm-kv/actions/workflows/ci.yml/badge.svg)](https://github.com/byte-banditt/lsm-kv/actions/workflows/ci.yml)
+[![CI](https://github.com/byte-banditt/lsm-kv/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/byte-banditt/lsm-kv/actions/workflows/ci.yml?query=branch%3Amaster)
 
 lsm-kv is a small, single-process C++17 key-value store for Linux that writes updates to a write-ahead log and a skip-list memtable, flushes sorted tables to disk, and merges tables with size-tiered compaction.
 

@@ -20,6 +20,12 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
+## Durability guarantees
+
+With the default `PerWrite` policy, a successful `DB::Put` or `DB::Delete` has its WAL record fsynced before the call returns. This supports recovery after a process crash while the OS remains running. `DB.CrashAckedWrites200Iterations` tests SIGKILL/reopen recovery under this policy; it does not simulate OS failure or power loss. `Batched` mode does not fsync each WAL append, so an acknowledged write is not individually guaranteed durable until `DB::Sync()` or a flush has installed its SSTable and MANIFEST.
+
+For OS crash or power loss, the code fsyncs WAL records in `PerWrite` mode, and fsyncs file contents plus the containing directory when atomically installing WAL, SSTable, and MANIFEST files. This requests durability from the OS and storage stack, but cannot guarantee that a filesystem or device honors fsync during power loss. `Batched` writes not yet synced or installed by a flush may be lost. No test simulates OS crash or power loss; the SIGKILL test backs only the process-crash claim.
+
 Run the 200-iteration SIGKILL/reopen recovery test alone:
 
 ```sh

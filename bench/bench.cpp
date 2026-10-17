@@ -6,6 +6,8 @@
 #include <iostream>
 #include <iomanip>
 #include <numeric>
+#include <fstream>
+#include <regex>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -43,10 +45,43 @@ Result Read(const std::string& dir,bool hits,bool bloom) {
 }
 }
 int main(int argc,char** argv) {
-  if(argc!=2) { std::cerr<<"usage: lsm_bench WORKDIR\n"; return 2; }
-  std::string root=argv[1]; std::filesystem::create_directories(root);
-  Result put=Fill(root+"/seq",false);
-  Result get=Read(root+"/seq",true,true);
+  if(argc<3 || argc>4) { std::cerr<<"usage: lsm_bench WORKDIR RUNS [BASELINE.json]\n"; return 2; }
+  std::string root=argv[1]; int runs=std::stoi(argv[2]);
+  if(runs<1) { std::cerr<<"RUNS must be positive\n"; return 2; }
+  std::filesystem::create_directories(root);
+  std::vector<Result> puts,gets;
+  for(int i=0;i<runs;++i) {
+    std::string run=root+"/run-"+std::to_string(i);
+    puts.push_back(Fill(run+"/seq",false));
+    gets.push_back(Read(run+"/seq",true,true));
+  }
+  auto median=[](std::vector<double> values) {
+    std::sort(values.begin(),values.end()); return values[values.size()/2];
+  };
+  auto metric=[&](const std::vector<Result>& results,double Result::*field) {
+    std::vector<double> values; values.reserve(results.size());
+    for(const auto& result:results) values.push_back(result.*field);
+    return median(std::move(values));
+  };
+  Result put{metric(puts,&Result::ops_s),0,0};
+  Result get{metric(gets,&Result::ops_s),metric(gets,&Result::p50_us),metric(gets,&Result::p99_us)};
+  if(argc==4) {
+    std::ifstream input(argv[3]);
+    if(!input) throw std::runtime_error("cannot open benchmark baseline");
+    std::string json((std::istreambuf_iterator<char>(input)),{});
+    auto read=[&](const char* key) {
+      std::regex pattern(std::string("\\\"")+key+"\\\"\\s*:\\s*([0-9.eE+-]+)");
+      std::smatch match;
+      if(!std::regex_search(json,match,pattern)) throw std::runtime_error(std::string("baseline missing ")+key);
+      return std::stod(match[1].str());
+    };
+    double limits[3]={read("put_ops_s")*0.75,read("get_ops_s")*0.75,read("get_p99_us")*1.25};
+    std::cerr<<"put_ops_s median="<<put.ops_s<<" minimum="<<limits[0]<<"\n"
+             <<"get_ops_s median="<<get.ops_s<<" minimum="<<limits[1]<<"\n"
+             <<"get_p99_us median="<<get.p99_us<<" maximum="<<limits[2]<<"\n";
+    if(put.ops_s<limits[0] || get.ops_s<limits[1] || get.p99_us>limits[2])
+      throw std::runtime_error("benchmark regression over 25%");
+  }
   std::cout<<std::setprecision(10)
     <<"{\"put_ops_s\":"<<put.ops_s
     <<",\"get_ops_s\":"<<get.ops_s

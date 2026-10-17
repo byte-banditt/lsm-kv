@@ -42,51 +42,26 @@ jobs:
         run: cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
       - name: Build benchmark
         run: cmake --build build-bench --target lsm_bench --parallel
-      - name: Run benchmark five times
+      - name: Run benchmark and prepare baseline candidate
+        if: github.event_name == 'workflow_dispatch' && inputs.update_baseline
         run: |
           mkdir -p bench-runs
-          for run in 1 2 3 4 5; do
-            ./build-bench/lsm_bench "bench-runs/run-$run" > "bench-runs/$run.json"
-          done
-      - name: Calculate medians
+          ./build-bench/lsm_bench bench-runs/work 5 > bench-runs/result.json
+          cat bench-runs/result.json
+      - name: Run benchmark and gate
+        if: github.event_name != 'workflow_dispatch' || !inputs.update_baseline
         run: |
-          python3 - <<'PY'
-          import json, statistics
-          from pathlib import Path
-          runs = [json.loads(p.read_text()) for p in sorted(Path('bench-runs').glob('[1-5].json'))]
-          metrics = ('put_ops_s', 'get_ops_s', 'get_p50_us', 'get_p99_us')
-          result = {key: statistics.median(run[key] for run in runs) for key in metrics}
-          Path('bench-runs/result.json').write_text(json.dumps(result, indent=2) + '\n')
-          print(json.dumps(result, indent=2))
-          PY
+          mkdir -p bench-runs
+          if [ -f bench/baseline.json ]; then
+            ./build-bench/lsm_bench bench-runs/work 5 bench/baseline.json > bench-runs/result.json
+          else
+            echo 'Benchmark gate skipped: bench/baseline.json does not exist.'
+            ./build-bench/lsm_bench bench-runs/work 5 > bench-runs/result.json
+          fi
+          cat bench-runs/result.json
       - name: Upload baseline candidate
         if: github.event_name == 'workflow_dispatch' && inputs.update_baseline
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-baseline-candidate
           path: bench-runs/result.json
-      - name: Compare with baseline
-        if: github.event_name != 'workflow_dispatch' || !inputs.update_baseline
-        run: |
-          if [ ! -f bench/baseline.json ]; then
-            echo 'Benchmark gate skipped: bench/baseline.json does not exist.'
-            exit 0
-          fi
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          baseline = json.loads(Path('bench/baseline.json').read_text())
-          result = json.loads(Path('bench-runs/result.json').read_text())
-          failures = []
-          for key in ('put_ops_s', 'get_ops_s'):
-              limit = baseline[key] * 0.75
-              print(f'{key}: median={result[key]:.6g}, minimum={limit:.6g}')
-              if result[key] < limit:
-                  failures.append(key)
-          limit = baseline['get_p99_us'] * 1.25
-          print(f"get_p99_us: median={result['get_p99_us']:.6g}, maximum={limit:.6g}")
-          if result['get_p99_us'] > limit:
-              failures.append('get_p99_us')
-          if failures:
-              raise SystemExit('Benchmark regression over 25%: ' + ', '.join(failures))
-          PY

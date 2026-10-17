@@ -52,11 +52,11 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || !inputs.update_baseline
         run: |
           mkdir -p bench-runs
+          ./build-bench/lsm_bench bench-runs/work 5 > bench-runs/result.json
           if [ -f bench/baseline.json ]; then
-            ./build-bench/lsm_bench bench-runs/work 5 bench/baseline.json > bench-runs/result.json
+            ./build-bench/lsm_bench --compare bench-runs/result.json bench/baseline.json
           else
             echo 'Benchmark gate skipped: bench/baseline.json does not exist.'
-            ./build-bench/lsm_bench bench-runs/work 5 > bench-runs/result.json
           fi
           cat bench-runs/result.json
       - name: Upload baseline candidate

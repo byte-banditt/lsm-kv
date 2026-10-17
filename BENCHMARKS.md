@@ -27,6 +27,8 @@ Bloom false-positive result from `Bloom.NoFalseNegativesAndMeasuredRate`: 10,000
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 cmake --build build --target lsm_bench --parallel
 ./build/lsm_bench /tmp/lsm-bench-run 5
+./build/lsm_bench /tmp/lsm-bench-run 5 > /tmp/lsm-bench-result.json
+./build/lsm_bench --compare /tmp/lsm-bench-result.json bench/baseline.json
 
 cmake -S . -B build-tests -DCMAKE_BUILD_TYPE=Release
 cmake --build build-tests --parallel
@@ -34,4 +36,4 @@ cmake --build build-tests --parallel
 ctest --test-dir build-tests --output-on-failure -R '^DB\.CrashAckedWrites200Iterations$'
 ```
 
-CI runs five fresh benchmark processes and compares medians with `bench/baseline.json` when present. A manual `update_baseline=true` run uploads its five-run median JSON as an artifact for review and commit.
+CI runs five fresh benchmark processes and compares medians with `bench/baseline.json` when present. A manual `update_baseline=true` run uploads its five-run median JSON as an artifact for review and commit. The gate fails when put or get throughput falls below 75% of baseline or get p99 exceeds 125% of baseline. Comparisons are strict; values exactly at either threshold pass.
